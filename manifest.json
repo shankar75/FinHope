@@ -1,0 +1,12 @@
+{
+  "name": "FinHope",
+  "short_name": "FinHope",
+  "description": "Track income, expenses, loans, and goals with a live financial health score.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#F5F6F2",
+  "theme_color": "#0A4B40",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
