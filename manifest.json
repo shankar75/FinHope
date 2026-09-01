@@ -1,12 +1,15 @@
 {
-  "name": "FinHope",
+  "name": "FinHope — Your AI Financial Brain",
   "short_name": "FinHope",
-  "description": "Track income, expenses, loans, and goals with a live financial health score.",
+  "description": "AI-powered personal finance app grounded in your real income, expenses, loans, and goals.",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#F5F6F2",
-  "theme_color": "#0A4B40",
+  "orientation": "portrait",
+  "background_color": "#0B1F1C",
+  "theme_color": "#0B1F1C",
   "icons": [
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

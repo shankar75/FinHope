@@ -2,631 +2,94 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-<title>FinHope</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>FinHope — Your AI Financial Brain</title>
+<meta name="description" content="AI-powered personal finance app grounded in your real income, expenses, loans, and goals." />
 
-<!-- Make it behave like an installed app on iOS -->
+<link rel="manifest" href="./manifest.json" />
+<meta name="theme-color" content="#0B1F1C" />
+<link rel="icon" href="./icon-192.png" />
+<link rel="apple-touch-icon" href="./icon-192.png" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="FinHope" />
-<meta name="mobile-web-app-capable" content="yes" />
-<meta name="theme-color" content="#0A4B40" />
-<link rel="apple-touch-icon" href="icon.svg" />
-<link rel="icon" href="icon.svg" />
-<link rel="manifest" href="manifest.json" />
 
 <style>
-  html, body { margin:0; padding:0; background:#F5F6F2; overscroll-behavior:none; -webkit-tap-highlight-color:transparent; }
-  * { box-sizing: border-box; }
-  input, select, button { font-family: inherit; outline: none; }
-  ::-webkit-scrollbar { display:none; }
+  html, body { margin: 0; padding: 0; background: #0B1F1C; }
+  #root { min-height: 100vh; }
+  #boot-screen {
+    position: fixed; inset: 0; background: #0B1F1C; display: flex;
+    flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    font-family: system-ui, sans-serif; color: #7CE6B8; z-index: 9999;
+  }
+  #boot-screen .spinner {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 3px solid #254741; border-top-color: #7CE6B8;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #boot-error { color: #E8593D; font-family: system-ui, sans-serif; padding: 24px; text-align: center; }
 </style>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18",
+    "react-dom/client": "https://esm.sh/react-dom@18/client",
+    "react/jsx-runtime": "https://esm.sh/react@18/jsx-runtime",
+    "lucide-react": "https://esm.sh/lucide-react@0.383.0?deps=react@18,react-dom@18"
+  }
+}
+</script>
 </head>
 <body>
+
+<div id="boot-screen">
+  <div class="spinner"></div>
+  <div>Loading FinHope…</div>
+</div>
 <div id="root"></div>
 
-<script type="text/babel">
-const { useState, useEffect, useMemo, useRef } = React;
-
-// ---------- Design tokens ----------
-const C = {
-  ink: "#12231F", paper: "#F5F6F2", card: "#FFFFFF",
-  teal: "#0F6B5C", tealDark: "#0A4B40",
-  gold: "#E8A33D", goldSoft: "#FBEBD2",
-  brick: "#B3492E", brickSoft: "#F6E1DA",
-  amber: "#C98A1B", amberSoft: "#FBF0D9",
-  ok: "#1F7A5C", okSoft: "#DEEFE6",
-  line: "#E4E3DC", mute: "#6B7268",
-};
-const NUM = { fontFamily: "'IBM Plex Mono','SF Mono',ui-monospace,monospace", fontVariantNumeric: "tabular-nums" };
-const fmt = (n) => {
-  const v = Math.round((n + Number.EPSILON) * 100) / 100;
-  const sign = v < 0 ? "-" : "";
-  return sign + "\u20B9" + Math.abs(v).toLocaleString("en-IN", { maximumFractionDigits: 0 });
-};
-const uid = () => Math.random().toString(36).slice(2, 10);
-const Emoji = ({ children, size = 16 }) => <span style={{ fontSize: size, lineHeight: 1 }}>{children}</span>;
-
-const SEED = {
-  budget: 40000,
-  incomes: [{ id: uid(), source: "Salary", amount: 55000, date: "2026-08-01" }],
-  expenses: [
-    { id: uid(), category: "Rent", amount: 15000, type: "need", date: "2026-08-02" },
-    { id: uid(), category: "Groceries", amount: 6000, type: "need", date: "2026-08-05" },
-    { id: uid(), category: "Dining Out", amount: 4500, type: "want", date: "2026-08-08" },
-    { id: uid(), category: "Shopping", amount: 5200, type: "want", date: "2026-08-12" },
-    { id: uid(), category: "Utilities", amount: 3000, type: "need", date: "2026-08-14" },
-  ],
-  loans: [
-    { id: uid(), name: "Personal Loan", principal: 200000, outstanding: 132000, emi: 8500, rate: 14 },
-    { id: uid(), name: "Credit Card", principal: 60000, outstanding: 42000, emi: 4000, rate: 36 },
-  ],
-  goals: [{ id: uid(), name: "Emergency Fund", target: 100000, saved: 18000 }],
-  actions: [
-    { id: uid(), text: "Call credit card provider to ask about a lower-rate settlement plan", priority: "High", done: false },
-    { id: uid(), text: "Cancel unused subscriptions found in Shopping/Dining review", priority: "Medium", done: false },
-    { id: uid(), text: "Move \u20B92,000 from Wants into Emergency Fund this month", priority: "Medium", done: true },
-  ],
-};
-const STORE_KEY = "finhope-v1-state";
-
-function FinHopeApp() {
-  const [tab, setTab] = useState("dashboard");
-  const [data, setData] = useState(SEED);
-  const [loaded, setLoaded] = useState(false);
-  const [saveState, setSaveState] = useState("idle");
-  const [installEvt, setInstallEvt] = useState(null);
-  const [showInstall, setShowInstall] = useState(false);
-
-  useEffect(() => {
-    const handler = (e) => { e.preventDefault(); setInstallEvt(e); setShowInstall(true); };
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
-  }, []);
-
-  useEffect(() => {
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script type="module">
+  async function boot() {
     try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (raw) setData(JSON.parse(raw));
-    } catch (e) {}
-    finally { setLoaded(true); }
-  }, []);
+      const res = await fetch("./app.jsx");
+      if (!res.ok) throw new Error("Could not load app.jsx (status " + res.status + ")");
+      const source = await res.text();
 
-  useEffect(() => {
-    if (!loaded) return;
-    setSaveState("saving");
-    const t = setTimeout(() => {
-      try {
-        localStorage.setItem(STORE_KEY, JSON.stringify(data));
-        setSaveState("saved");
-      } catch (e) { setSaveState("error"); }
-    }, 400);
-    return () => clearTimeout(t);
-  }, [data, loaded]);
+      const bootstrap = `
+import { createRoot } from "react-dom/client";
+${source}
+const _root = createRoot(document.getElementById("root"));
+_root.render(<FinHope />);
+`;
 
-  const calc = useMemo(() => {
-    const totalIncome = data.incomes.reduce((s, i) => s + Number(i.amount || 0), 0);
-    const totalExpenses = data.expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
-    const activeLoans = data.loans.filter((l) => Number(l.outstanding) > 0);
-    const totalEMI = activeLoans.reduce((s, l) => s + Number(l.emi || 0), 0);
-    const totalOutstanding = data.loans.reduce((s, l) => s + Number(l.outstanding || 0), 0);
-    const balance = totalIncome - totalExpenses - totalEMI;
-    const budgetRemaining = Number(data.budget || 0) - totalExpenses;
-    const needTotal = data.expenses.filter((e) => e.type === "need").reduce((s, e) => s + Number(e.amount || 0), 0);
-    const wantTotal = data.expenses.filter((e) => e.type === "want").reduce((s, e) => s + Number(e.amount || 0), 0);
-    const needPct = totalExpenses > 0 ? (needTotal / totalExpenses) * 100 : 0;
-    const wantPct = totalExpenses > 0 ? (wantTotal / totalExpenses) * 100 : 0;
-    const byCategory = {};
-    data.expenses.forEach((e) => { byCategory[e.category] = (byCategory[e.category] || 0) + Number(e.amount || 0); });
-    const goalsProgress = data.goals.map((g) => ({ ...g, pct: g.target > 0 ? Math.min(100, (g.saved / g.target) * 100) : 0 }));
-    const avgGoalPct = goalsProgress.length ? goalsProgress.reduce((s, g) => s + g.pct, 0) / goalsProgress.length : null;
-    const savingsRate = totalIncome > 0 ? balance / totalIncome : 0;
-    const dti = totalIncome > 0 ? totalEMI / totalIncome : 0;
-    const savingsPts = Math.max(0, Math.min(40, (savingsRate / 0.2) * 40));
-    const dtiPts = Math.max(0, Math.min(30, 30 - (dti / 0.5) * 30));
-    const nwPts = wantPct <= 30 ? 15 : Math.max(0, 15 - (wantPct - 30) * 0.5);
-    const goalPts = avgGoalPct === null ? 7.5 : (avgGoalPct / 100) * 15;
-    const score = Math.round(savingsPts + dtiPts + nwPts + goalPts);
-    let band;
-    if (score < 40) band = { label: "Crisis", color: C.brick };
-    else if (score < 60) band = { label: "Caution", color: C.amber };
-    else if (score < 80) band = { label: "Stable", color: C.teal };
-    else band = { label: "Healthy", color: C.ok };
-    const tips = [];
-    if (dti > 0.4) tips.push({ level: "high", text: `Loan EMIs eat up ${Math.round(dti * 100)}% of income \u2014 above the 40% danger line. Consider negotiating or consolidating.` });
-    if (wantPct > 35) tips.push({ level: "med", text: `Wants are ${Math.round(wantPct)}% of spending. Trimming toward 30% frees up ${fmt(wantTotal - totalExpenses * 0.3)} a month.` });
-    if (balance < 0) tips.push({ level: "high", text: `You're short ${fmt(Math.abs(balance))} this month after EMIs \u2014 prioritize the highest-interest loan for relief.` });
-    if (budgetRemaining < 0) tips.push({ level: "med", text: `${fmt(Math.abs(budgetRemaining))} over your set budget. Review the top spending category below.` });
-    if (avgGoalPct !== null && avgGoalPct < 20 && balance > 0) tips.push({ level: "low", text: `Goals are under 20% funded. Auto-route part of your ${fmt(balance)} surplus toward them.` });
-    if (tips.length === 0) tips.push({ level: "ok", text: "No red flags this month \u2014 debt load, spending mix, and goal progress are all in a healthy range." });
-    const topCategory = Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0];
-    return { totalIncome, totalExpenses, totalEMI, totalOutstanding, balance, budgetRemaining, needTotal, wantTotal, needPct, wantPct, byCategory, goalsProgress, avgGoalPct, score, band, tips, topCategory };
-  }, [data]);
+      const { code } = Babel.transform(bootstrap, {
+        presets: [["react", { runtime: "automatic" }]],
+        filename: "app.jsx",
+      });
 
-  const addIncome = (e) => setData((d) => ({ ...d, incomes: [{ id: uid(), ...e }, ...d.incomes] }));
-  const delIncome = (id) => setData((d) => ({ ...d, incomes: d.incomes.filter((i) => i.id !== id) }));
-  const addExpense = (e) => setData((d) => ({ ...d, expenses: [{ id: uid(), ...e }, ...d.expenses] }));
-  const delExpense = (id) => setData((d) => ({ ...d, expenses: d.expenses.filter((e) => e.id !== id) }));
-  const addLoan = (e) => setData((d) => ({ ...d, loans: [{ id: uid(), ...e }, ...d.loans] }));
-  const delLoan = (id) => setData((d) => ({ ...d, loans: d.loans.filter((l) => l.id !== id) }));
-  const payEMI = (id) => setData((d) => ({ ...d, loans: d.loans.map((l) => l.id === id ? { ...l, outstanding: Math.max(0, l.outstanding - l.emi) } : l) }));
-  const addGoal = (e) => setData((d) => ({ ...d, goals: [{ id: uid(), saved: 0, ...e }, ...d.goals] }));
-  const delGoal = (id) => setData((d) => ({ ...d, goals: d.goals.filter((g) => g.id !== id) }));
-  const contributeGoal = (id, amt) => setData((d) => ({ ...d, goals: d.goals.map((g) => g.id === id ? { ...g, saved: g.saved + amt } : g) }));
-  const addAction = (e) => setData((d) => ({ ...d, actions: [{ id: uid(), done: false, ...e }, ...d.actions] }));
-  const toggleAction = (id) => setData((d) => ({ ...d, actions: d.actions.map((a) => a.id === id ? { ...a, done: !a.done } : a) }));
-  const delAction = (id) => setData((d) => ({ ...d, actions: d.actions.filter((a) => a.id !== id) }));
-  const setBudget = (v) => setData((d) => ({ ...d, budget: v }));
+      const blob = new Blob([code], { type: "text/javascript" });
+      const url = URL.createObjectURL(blob);
+      await import(url);
 
-  const TABS = [
-    { id: "dashboard", label: "Dashboard", icon: "\u{1F4CA}" },
-    { id: "income", label: "Income", icon: "\u{1F4B0}" },
-    { id: "expense", label: "Expense", icon: "\u{1F4B8}" },
-    { id: "loans", label: "Loans", icon: "\u{1F3E6}" },
-    { id: "goals", label: "Goals", icon: "\u{1F3AF}" },
-    { id: "actions", label: "Actions", icon: "\u2705" },
-    { id: "ask", label: "Ask", icon: "\u{1F4AC}" },
-  ];
-
-  return (
-    <div style={{ background: C.paper, minHeight: "100vh", color: C.ink }} className="flex flex-col">
-      <TopBar tab={tab} TABS={TABS} saveState={saveState} showInstall={showInstall} onInstall={async () => {
-        if (!installEvt) return;
-        installEvt.prompt();
-        await installEvt.userChoice;
-        setShowInstall(false);
-      }} />
-      <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 96px", maxWidth: 448, width: "100%", margin: "0 auto" }}>
-        {tab === "dashboard" && <Dashboard data={data} calc={calc} setBudget={setBudget} goTo={setTab} />}
-        {tab === "income" && <IncomeScreen incomes={data.incomes} total={calc.totalIncome} onAdd={addIncome} onDel={delIncome} />}
-        {tab === "expense" && <ExpenseScreen expenses={data.expenses} calc={calc} onAdd={addExpense} onDel={delExpense} />}
-        {tab === "loans" && <LoansScreen loans={data.loans} calc={calc} onAdd={addLoan} onDel={delLoan} onPay={payEMI} />}
-        {tab === "goals" && <GoalsScreen goals={calc.goalsProgress} onAdd={addGoal} onDel={delGoal} onContribute={contributeGoal} balance={calc.balance} />}
-        {tab === "actions" && <ActionsScreen actions={data.actions} onAdd={addAction} onToggle={toggleAction} onDel={delAction} />}
-        {tab === "ask" && <AskFinHope calc={calc} data={data} />}
-      </div>
-      <BottomNav tab={tab} setTab={setTab} TABS={TABS} />
-    </div>
-  );
-}
-
-function TopBar({ tab, TABS, saveState, showInstall, onInstall }) {
-  const current = TABS.find((t) => t.id === tab);
-  return (
-    <div style={{ background: C.tealDark, color: "#fff", padding: "20px 16px 16px", position: "sticky", top: 0, zIndex: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ background: C.gold, width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Emoji size={15}>\u2728</Emoji>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.5, opacity: 0.7 }}>FinHope</div>
-            <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.2 }}>{current?.label}</div>
-          </div>
-        </div>
-        {showInstall ? (
-          <button onClick={onInstall} style={{ background: C.gold, color: C.tealDark, border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 11, fontWeight: 700 }}>
-            Install app
-          </button>
-        ) : (
-          <div style={{ fontSize: 10, opacity: 0.6, ...NUM }}>
-            {saveState === "saving" ? "saving\u2026" : saveState === "saved" ? "saved" : saveState === "error" ? "save failed" : ""}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function BottomNav({ tab, setTab, TABS }) {
-  return (
-    <div style={{ background: C.card, borderTop: `1px solid ${C.line}`, position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 10, paddingBottom: "env(safe-area-inset-bottom)" }}>
-      <div style={{ maxWidth: 448, margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(7,1fr)" }}>
-        {TABS.map((t) => {
-          const active = tab === t.id;
-          return (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "8px 0", gap: 2, background: "none", border: "none", color: active ? C.teal : C.mute }}>
-              <Emoji size={16}>{t.icon}</Emoji>
-              <span style={{ fontSize: 9, lineHeight: 1 }}>{t.label}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function Card({ children, style }) {
-  return <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 16, padding: 16, ...style }}>{children}</div>;
-}
-function SectionTitle({ children }) {
-  return <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 8, color: C.mute }}>{children}</div>;
-}
-function EmptyState({ text }) { return <div style={{ fontSize: 14, textAlign: "center", padding: "24px 0", color: C.mute }}>{text}</div>; }
-const gap3 = { display: "flex", flexDirection: "column", gap: 12 };
-
-function ScoreGauge({ score, band }) {
-  const r = 54, circumference = Math.PI * r;
-  const pct = Math.max(0, Math.min(100, score)) / 100;
-  const dash = circumference * pct;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-      <svg width="128" height="76" viewBox="0 0 128 76">
-        <path d={`M 10 64 A ${r} ${r} 0 0 1 118 64`} fill="none" stroke={C.line} strokeWidth="10" strokeLinecap="round" />
-        <path d={`M 10 64 A ${r} ${r} 0 0 1 118 64`} fill="none" stroke={band.color} strokeWidth="10" strokeLinecap="round" strokeDasharray={`${dash} ${circumference}`} />
-      </svg>
-      <div style={{ marginTop: -24, textAlign: "center" }}>
-        <div style={{ ...NUM, fontSize: 32, fontWeight: 700, color: band.color }}>{score}</div>
-        <div style={{ color: band.color, fontSize: 12, fontWeight: 600 }}>{band.label}</div>
-      </div>
-    </div>
-  );
-}
-
-function Dashboard({ data, calc, setBudget, goTo }) {
-  const [editingBudget, setEditingBudget] = useState(false);
-  const [budgetInput, setBudgetInput] = useState(String(data.budget));
-  return (
-    <div style={gap3}>
-      <Card>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <SectionTitle>Financial health score</SectionTitle>
-            <div style={{ fontSize: 12, color: C.mute, maxWidth: 150 }}>Blend of savings rate, debt load, need/want mix, and goal progress.</div>
-          </div>
-          <ScoreGauge score={calc.score} band={calc.band} />
-        </div>
-      </Card>
-      <Card style={{ background: calc.balance < 0 ? C.brickSoft : C.okSoft, border: "none" }}>
-        <SectionTitle>Balance this month</SectionTitle>
-        <div style={{ ...NUM, fontSize: 28, fontWeight: 700, color: calc.balance < 0 ? C.brick : C.tealDark }}>{fmt(calc.balance)}</div>
-        <div style={{ fontSize: 12, marginTop: 4, color: C.mute }}>Income {fmt(calc.totalIncome)} \u2212 Expenses {fmt(calc.totalExpenses)} \u2212 EMIs {fmt(calc.totalEMI)}</div>
-      </Card>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Card><SectionTitle>Income</SectionTitle><div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: C.teal }}>{fmt(calc.totalIncome)}</div></Card>
-        <Card><SectionTitle>Expenses</SectionTitle><div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: C.brick }}>{fmt(calc.totalExpenses)}</div></Card>
-        <Card>
-          <SectionTitle>Budget remaining</SectionTitle>
-          {editingBudget ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <input value={budgetInput} onChange={(e) => setBudgetInput(e.target.value)} style={{ ...NUM, border: `1px solid ${C.line}`, borderRadius: 8, width: 80, padding: "2px 6px", fontSize: 14 }} inputMode="numeric" />
-              <button onClick={() => { setBudget(Number(budgetInput) || 0); setEditingBudget(false); }} style={{ background: C.teal, color: "#fff", fontSize: 12, padding: "4px 8px", borderRadius: 8, border: "none" }}>Save</button>
-            </div>
-          ) : (
-            <button onClick={() => setEditingBudget(true)} style={{ background: "none", border: "none", textAlign: "left", padding: 0 }}>
-              <div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: calc.budgetRemaining < 0 ? C.brick : C.tealDark }}>{fmt(calc.budgetRemaining)}</div>
-              <div style={{ fontSize: 10, color: C.mute }}>of {fmt(data.budget)} \u00b7 tap to edit</div>
-            </button>
-          )}
-        </Card>
-        <Card><SectionTitle>Loan outstanding</SectionTitle><div style={{ ...NUM, fontSize: 20, fontWeight: 700 }}>{fmt(calc.totalOutstanding)}</div><div style={{ fontSize: 10, color: C.mute }}>EMIs/mo: {fmt(calc.totalEMI)}</div></Card>
-      </div>
-      <Card>
-        <SectionTitle>Need vs. want</SectionTitle>
-        <div style={{ height: 12, borderRadius: 999, overflow: "hidden", display: "flex", background: C.line }}>
-          <div style={{ width: `${calc.needPct}%`, background: C.teal }} />
-          <div style={{ width: `${calc.wantPct}%`, background: C.gold }} />
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginTop: 8 }}>
-          <span style={{ color: C.teal }}>Need {Math.round(calc.needPct)}% \u00b7 {fmt(calc.needTotal)}</span>
-          <span style={{ color: C.amber }}>Want {Math.round(calc.wantPct)}% \u00b7 {fmt(calc.wantTotal)}</span>
-        </div>
-        {calc.topCategory && <div style={{ fontSize: 12, marginTop: 8, color: C.mute }}>Top category: <b style={{ color: C.ink }}>{calc.topCategory[0]}</b> ({fmt(calc.topCategory[1])})</div>}
-      </Card>
-      <Card>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}><Emoji size={14}>\u2728</Emoji><SectionTitle>AI recommendations</SectionTitle></div>
-        <div style={gap3}>
-          {calc.tips.map((t, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12 }}>
-              <Emoji size={13}>{t.level === "high" ? "\u26A0\uFE0F" : t.level === "med" ? "\u26A0\uFE0F" : t.level === "low" ? "\u26AA" : "\u2705"}</Emoji>
-              <span>{t.text}</span>
-            </div>
-          ))}
-        </div>
-        <button onClick={() => goTo("ask")} style={{ color: C.teal, fontSize: 12, fontWeight: 700, marginTop: 12, background: "none", border: "none", padding: 0 }}>Ask FinHope for a plan \u2192</button>
-      </Card>
-    </div>
-  );
-}
-
-function IncomeScreen({ incomes, total, onAdd, onDel }) {
-  const [source, setSource] = useState("");
-  const [amount, setAmount] = useState("");
-  const submit = () => { if (!source.trim() || !amount) return; onAdd({ source: source.trim(), amount: Number(amount), date: new Date().toISOString().slice(0, 10) }); setSource(""); setAmount(""); };
-  const inputStyle = { border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", fontSize: 14 };
-  return (
-    <div style={gap3}>
-      <Card style={{ background: C.okSoft, border: "none" }}><SectionTitle>Total income this month</SectionTitle><div style={{ ...NUM, fontSize: 24, fontWeight: 700, color: C.tealDark }}>{fmt(total)}</div></Card>
-      <Card>
-        <SectionTitle>Add income</SectionTitle>
-        <div style={gap3}>
-          <input placeholder="Source (Salary, Freelance\u2026)" value={source} onChange={(e) => setSource(e.target.value)} style={inputStyle} />
-          <input placeholder="Amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ ...inputStyle, ...NUM }} />
-          <button onClick={submit} style={{ background: C.teal, color: "#fff", fontWeight: 700, fontSize: 14, padding: "10px 0", borderRadius: 10, border: "none" }}>+ Add income</button>
-        </div>
-      </Card>
-      <Card>
-        <SectionTitle>Entries</SectionTitle>
-        {incomes.length === 0 && <EmptyState text="No income added yet." />}
-        {incomes.map((i) => (
-          <div key={i.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
-            <div><div style={{ fontSize: 14, fontWeight: 600 }}>{i.source}</div><div style={{ fontSize: 10, color: C.mute }}>{i.date}</div></div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ ...NUM, color: C.teal, fontWeight: 700 }}>{fmt(i.amount)}</span>
-              <button onClick={() => onDel(i.id)} style={{ background: "none", border: "none" }}><Emoji size={14}>\u{1F5D1}\uFE0F</Emoji></button>
-            </div>
-          </div>
-        ))}
-      </Card>
-    </div>
-  );
-}
-
-const CATEGORIES = ["Rent", "Groceries", "Utilities", "Transport", "Dining Out", "Shopping", "Entertainment", "Healthcare", "Other"];
-
-function ExpenseScreen({ expenses, calc, onAdd, onDel }) {
-  const [category, setCategory] = useState(CATEGORIES[0]);
-  const [amount, setAmount] = useState("");
-  const [type, setType] = useState("need");
-  const submit = () => { if (!amount) return; onAdd({ category, amount: Number(amount), type, date: new Date().toISOString().slice(0, 10) }); setAmount(""); };
-  const inputStyle = { border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", fontSize: 14 };
-  return (
-    <div style={gap3}>
-      <Card style={{ background: C.brickSoft, border: "none" }}><SectionTitle>Total expenses this month</SectionTitle><div style={{ ...NUM, fontSize: 24, fontWeight: 700, color: C.brick }}>{fmt(calc.totalExpenses)}</div></Card>
-      <Card>
-        <SectionTitle>Add expense</SectionTitle>
-        <div style={gap3}>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} style={inputStyle}>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <input placeholder="Amount" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ ...inputStyle, ...NUM }} />
-          <div style={{ display: "flex", gap: 8 }}>
-            {["need", "want"].map((t) => (
-              <button key={t} onClick={() => setType(t)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, fontSize: 14, fontWeight: 600, textTransform: "capitalize", border: `1px solid ${type === t ? C.teal : C.line}`, background: type === t ? C.okSoft : "transparent", color: type === t ? C.tealDark : C.mute }}>{t}</button>
-            ))}
-          </div>
-          <button onClick={submit} style={{ background: C.brick, color: "#fff", fontWeight: 700, fontSize: 14, padding: "10px 0", borderRadius: 10, border: "none" }}>+ Add expense</button>
-        </div>
-      </Card>
-      <Card>
-        <SectionTitle>Entries</SectionTitle>
-        {expenses.length === 0 && <EmptyState text="No expenses added yet." />}
-        {expenses.map((e) => (
-          <div key={e.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
-                {e.category}
-                <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 999, background: e.type === "need" ? C.okSoft : C.goldSoft, color: e.type === "need" ? C.tealDark : C.amber }}>{e.type}</span>
-              </div>
-              <div style={{ fontSize: 10, color: C.mute }}>{e.date}</div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ ...NUM, color: C.brick, fontWeight: 700 }}>{fmt(e.amount)}</span>
-              <button onClick={() => onDel(e.id)} style={{ background: "none", border: "none" }}><Emoji size={14}>\u{1F5D1}\uFE0F</Emoji></button>
-            </div>
-          </div>
-        ))}
-      </Card>
-    </div>
-  );
-}
-
-function LoansScreen({ loans, calc, onAdd, onDel, onPay }) {
-  const [form, setForm] = useState({ name: "", principal: "", outstanding: "", emi: "", rate: "" });
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
-  const inputStyle = { border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", fontSize: 14 };
-  const submit = () => { if (!form.name || !form.principal || !form.outstanding || !form.emi) return; onAdd({ name: form.name, principal: Number(form.principal), outstanding: Number(form.outstanding), emi: Number(form.emi), rate: Number(form.rate) || 0 }); setForm({ name: "", principal: "", outstanding: "", emi: "", rate: "" }); };
-  return (
-    <div style={gap3}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Card><SectionTitle>Total outstanding</SectionTitle><div style={{ ...NUM, fontSize: 20, fontWeight: 700 }}>{fmt(calc.totalOutstanding)}</div></Card>
-        <Card><SectionTitle>Monthly EMIs</SectionTitle><div style={{ ...NUM, fontSize: 20, fontWeight: 700, color: C.brick }}>{fmt(calc.totalEMI)}</div></Card>
-      </div>
-      <Card>
-        <SectionTitle>Add loan</SectionTitle>
-        <div style={gap3}>
-          <input placeholder="Loan name" value={form.name} onChange={(e) => set("name", e.target.value)} style={inputStyle} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <input placeholder="Principal" inputMode="numeric" value={form.principal} onChange={(e) => set("principal", e.target.value)} style={{ ...inputStyle, ...NUM }} />
-            <input placeholder="Outstanding" inputMode="numeric" value={form.outstanding} onChange={(e) => set("outstanding", e.target.value)} style={{ ...inputStyle, ...NUM }} />
-            <input placeholder="Monthly EMI" inputMode="numeric" value={form.emi} onChange={(e) => set("emi", e.target.value)} style={{ ...inputStyle, ...NUM }} />
-            <input placeholder="Interest rate %" inputMode="numeric" value={form.rate} onChange={(e) => set("rate", e.target.value)} style={{ ...inputStyle, ...NUM }} />
-          </div>
-          <button onClick={submit} style={{ background: C.teal, color: "#fff", fontWeight: 700, fontSize: 14, padding: "10px 0", borderRadius: 10, border: "none" }}>+ Add loan</button>
-        </div>
-      </Card>
-      {loans.length === 0 && <Card><EmptyState text="No loans added yet." /></Card>}
-      {loans.map((l) => {
-        const paidPct = l.principal > 0 ? Math.min(100, ((l.principal - l.outstanding) / l.principal) * 100) : 0;
-        return (
-          <Card key={l.id}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div><div style={{ fontSize: 14, fontWeight: 700 }}>{l.name}</div><div style={{ fontSize: 10, color: C.mute }}>{l.rate}% APR \u00b7 EMI {fmt(l.emi)}/mo</div></div>
-              <button onClick={() => onDel(l.id)} style={{ background: "none", border: "none" }}><Emoji size={14}>\u{1F5D1}\uFE0F</Emoji></button>
-            </div>
-            <div style={{ height: 8, borderRadius: 999, marginTop: 12, marginBottom: 4, background: C.line }}><div style={{ height: "100%", borderRadius: 999, width: `${paidPct}%`, background: C.teal }} /></div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: C.mute }}>{Math.round(paidPct)}% repaid</span>
-              <span style={{ ...NUM, fontWeight: 700 }}>{fmt(l.outstanding)} left</span>
-            </div>
-            {l.outstanding > 0 ? (
-              <button onClick={() => onPay(l.id)} style={{ border: `1px solid ${C.teal}`, color: C.teal, fontSize: 12, fontWeight: 700, marginTop: 12, padding: "8px 0", width: "100%", borderRadius: 10, background: "none" }}>Log this month's EMI payment ({fmt(l.emi)})</button>
-            ) : (
-              <div style={{ fontSize: 12, marginTop: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 4, color: C.ok }}><Emoji size={13}>\u2705</Emoji> Fully repaid</div>
-            )}
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
-function GoalsScreen({ goals, onAdd, onDel, onContribute, balance }) {
-  const [form, setForm] = useState({ name: "", target: "" });
-  const [contribAmt, setContribAmt] = useState({});
-  const inputStyle = { border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", fontSize: 14 };
-  const submit = () => { if (!form.name || !form.target) return; onAdd({ name: form.name, target: Number(form.target) }); setForm({ name: "", target: "" }); };
-  return (
-    <div style={gap3}>
-      <Card style={{ background: C.goldSoft, border: "none" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Emoji size={17}>\u{1F437}</Emoji>
-          <div style={{ fontSize: 12, color: C.amber }}>Available balance to allocate this month: <b style={NUM}>{fmt(balance)}</b></div>
-        </div>
-      </Card>
-      <Card>
-        <SectionTitle>Add goal</SectionTitle>
-        <div style={gap3}>
-          <input placeholder="Goal name (Emergency Fund\u2026)" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} style={inputStyle} />
-          <input placeholder="Target amount" inputMode="numeric" value={form.target} onChange={(e) => setForm((f) => ({ ...f, target: e.target.value }))} style={{ ...inputStyle, ...NUM }} />
-          <button onClick={submit} style={{ background: C.gold, color: C.tealDark, fontWeight: 700, fontSize: 14, padding: "10px 0", borderRadius: 10, border: "none" }}>+ Add goal</button>
-        </div>
-      </Card>
-      {goals.length === 0 && <Card><EmptyState text="No goals yet." /></Card>}
-      {goals.map((g) => (
-        <Card key={g.id}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>{g.name}</div>
-            <button onClick={() => onDel(g.id)} style={{ background: "none", border: "none" }}><Emoji size={14}>\u{1F5D1}\uFE0F</Emoji></button>
-          </div>
-          <div style={{ height: 8, borderRadius: 999, marginTop: 12, marginBottom: 4, background: C.line }}><div style={{ height: "100%", borderRadius: 999, width: `${g.pct}%`, background: C.gold }} /></div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 8 }}>
-            <span style={{ color: C.mute }}>{Math.round(g.pct)}% funded</span>
-            <span style={{ ...NUM, fontWeight: 700 }}>{fmt(g.saved)} / {fmt(g.target)}</span>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input placeholder="Add amount" inputMode="numeric" value={contribAmt[g.id] || ""} onChange={(e) => setContribAmt((c) => ({ ...c, [g.id]: e.target.value }))} style={{ ...inputStyle, ...NUM, flex: 1, padding: "6px 12px" }} />
-            <button onClick={() => { const v = Number(contribAmt[g.id]); if (v > 0) { onContribute(g.id, v); setContribAmt((c) => ({ ...c, [g.id]: "" })); } }} style={{ border: `1px solid ${C.teal}`, color: C.teal, fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 10, background: "none" }}>Contribute</button>
-          </div>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
-function ActionsScreen({ actions, onAdd, onToggle, onDel }) {
-  const [text, setText] = useState("");
-  const [priority, setPriority] = useState("Medium");
-  const done = actions.filter((a) => a.done).length;
-  const pct = actions.length ? (done / actions.length) * 100 : 0;
-  const inputStyle = { border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 12px", fontSize: 14 };
-  const pColor = { High: C.brick, Medium: C.amber, Low: C.teal };
-  const submit = () => { if (!text.trim()) return; onAdd({ text: text.trim(), priority }); setText(""); };
-  return (
-    <div style={gap3}>
-      <Card>
-        <SectionTitle>Crisis action progress</SectionTitle>
-        <div style={{ height: 10, borderRadius: 999, marginTop: 4, marginBottom: 4, background: C.line }}><div style={{ height: "100%", borderRadius: 999, width: `${pct}%`, background: C.teal }} /></div>
-        <div style={{ fontSize: 12, color: C.mute }}>{done} of {actions.length} actions completed</div>
-      </Card>
-      <Card>
-        <SectionTitle>Add action</SectionTitle>
-        <div style={gap3}>
-          <input placeholder="e.g. Call lender to renegotiate EMI" value={text} onChange={(e) => setText(e.target.value)} style={inputStyle} />
-          <div style={{ display: "flex", gap: 8 }}>
-            {["High", "Medium", "Low"].map((p) => (
-              <button key={p} onClick={() => setPriority(p)} style={{ flex: 1, padding: "8px 0", borderRadius: 10, fontSize: 12, fontWeight: 700, border: `1px solid ${priority === p ? pColor[p] : C.line}`, background: priority === p ? pColor[p] + "22" : "transparent", color: priority === p ? pColor[p] : C.mute }}>{p}</button>
-            ))}
-          </div>
-          <button onClick={submit} style={{ background: C.teal, color: "#fff", fontWeight: 700, fontSize: 14, padding: "10px 0", borderRadius: 10, border: "none" }}>+ Add action</button>
-        </div>
-      </Card>
-      <Card>
-        <SectionTitle>Action list</SectionTitle>
-        {actions.length === 0 && <EmptyState text="No actions yet." />}
-        {actions.map((a) => (
-          <div key={a.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "8px 0", borderBottom: `1px solid ${C.line}` }}>
-            <button onClick={() => onToggle(a.id)} style={{ background: "none", border: "none", marginTop: 2 }}><Emoji size={17}>{a.done ? "\u2705" : "\u26AA"}</Emoji></button>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, textDecoration: a.done ? "line-through" : "none", color: a.done ? C.mute : C.ink }}>{a.text}</div>
-              <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 999, background: pColor[a.priority] + "22", color: pColor[a.priority] }}>{a.priority}</span>
-            </div>
-            <button onClick={() => onDel(a.id)} style={{ background: "none", border: "none" }}><Emoji size={14}>\u{1F5D1}\uFE0F</Emoji></button>
-          </div>
-        ))}
-      </Card>
-    </div>
-  );
-}
-
-// Local rule-based reply engine — no backend or API key required, so this
-// works standalone once hosted on GitHub Pages.
-function generateReply(question, calc, data) {
-  const q = question.toLowerCase();
-  const worstLoan = [...data.loans].filter((l) => l.outstanding > 0).sort((a, b) => b.rate - a.rate)[0];
-
-  if (/loan|debt|pay ?off|emi/.test(q)) {
-    if (!worstLoan) return "You have no outstanding loans right now \u2014 nothing to prioritize on the debt side. Good position to build savings from.";
-    return `Prioritize ${worstLoan.name} first \u2014 it carries the highest rate at ${worstLoan.rate}% APR with ${fmt(worstLoan.outstanding)} left. Paying extra here saves more interest than spreading payments evenly. Your total EMI load is ${fmt(calc.totalEMI)}/month against ${fmt(calc.totalIncome)} income, a debt-to-income ratio of ${Math.round((calc.totalEMI / (calc.totalIncome || 1)) * 100)}%.`;
+      document.getElementById("boot-screen").remove();
+    } catch (err) {
+      console.error("FinHope failed to load:", err);
+      const boot = document.getElementById("boot-screen");
+      boot.innerHTML = '<div id="boot-error">FinHope couldn\\'t load.<br/>' + (err && err.message ? err.message : "Unknown error") +
+        '<br/><br/>If you opened this file directly, host it (Netlify/Vercel) instead — fetch() of local files is blocked by the browser otherwise.</div>';
+    }
   }
-  if (/score/.test(q)) {
-    return `Your score is ${calc.score}/100 (${calc.band.label}). It's built from savings rate, debt-to-income, need/want balance, and goal progress. Biggest lever right now: ${calc.dtiHint || (calc.wantPct > 30 ? `cut Want spending from ${Math.round(calc.wantPct)}% toward 30%` : calc.balance < 0 ? "close the negative monthly balance" : "keep funding your goals consistently")}.`;
-  }
-  if (/overspend|want|spending/.test(q)) {
-    return `Wants are ${Math.round(calc.wantPct)}% of your spending (Needs ${Math.round(calc.needPct)}%). A common healthy target is around 30% Wants. ${calc.wantPct > 30 ? `Trimming to that level frees roughly ${fmt(calc.wantTotal - calc.totalExpenses * 0.3)} a month.` : "You're within a reasonable range \u2014 no urgent cuts needed."} ${calc.topCategory ? `Your top spending category is ${calc.topCategory[0]} at ${fmt(calc.topCategory[1])}.` : ""}`;
-  }
-  if (/plan|step|what should i do/.test(q)) {
-    const steps = [];
-    if (worstLoan) steps.push(`Call ${worstLoan.name}'s lender this week to ask about a lower rate or settlement plan.`);
-    if (calc.wantPct > 30) steps.push(`Cut one Want category (e.g. ${calc.topCategory ? calc.topCategory[0] : "dining/shopping"}) by 20% this month.`);
-    if (calc.balance > 0 && calc.avgGoalPct !== null && calc.avgGoalPct < 50) steps.push(`Auto-route ${fmt(Math.max(0, calc.balance * 0.3))} of your surplus into your top goal.`);
-    if (steps.length === 0) steps.push("Keep current habits going \u2014 review this dashboard again in two weeks.");
-    return "Here's a 3-step plan:\n" + steps.slice(0, 3).map((s, i) => `${i + 1}. ${s}`).join("\n");
-  }
-  return `Quick snapshot: balance ${fmt(calc.balance)}, score ${calc.score}/100 (${calc.band.label}), ${fmt(calc.totalOutstanding)} in outstanding loans. Try asking about a specific loan, your score, spending habits, or for a step-by-step plan.`;
-}
+  boot();
 
-function AskFinHope({ calc, data }) {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const endRef = useRef(null);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
-  const suggestions = ["Which loan should I pay off first?", "How can I raise my financial score fast?", "Am I overspending on wants?", "Build me a 3-step action plan this week"];
-  const send = async (text) => {
-    const q = (text ?? input).trim();
-    if (!q || loading) return;
-    setMessages((m) => [...m, { role: "user", text: q }]);
-    setInput(""); setLoading(true);
-    setTimeout(() => {
-      const reply = generateReply(q, calc, data);
-      setMessages((m) => [...m, { role: "assistant", text: reply }]);
-      setLoading(false);
-    }, 350);
-  };
-  return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "60vh" }}>
-      <Card style={{ background: C.tealDark, border: "none", marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#fff" }}><Emoji size={15}>\u2728</Emoji><div style={{ fontSize: 14, fontWeight: 700 }}>Ask FinHope</div></div>
-        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", marginTop: 4 }}>Answers use your live dashboard numbers \u2014 score {calc.score}/100, balance {fmt(calc.balance)}.</div>
-      </Card>
-      {messages.length === 0 && (
-        <div style={{ ...gap3, marginBottom: 12 }}>
-          {suggestions.map((s) => (
-            <button key={s} onClick={() => send(s)} style={{ textAlign: "left", fontSize: 14, padding: "10px 12px", borderRadius: 14, border: `1px solid ${C.line}`, background: C.card }}>{s}</button>
-          ))}
-        </div>
-      )}
-      <div style={{ flex: 1, ...gap3 }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{ maxWidth: "85%", fontSize: 14, padding: "8px 12px", borderRadius: 16, alignSelf: m.role === "user" ? "flex-end" : "flex-start", background: m.role === "user" ? C.teal : C.card, color: m.role === "user" ? "#fff" : C.ink, border: m.role === "user" ? "none" : `1px solid ${C.line}`, whiteSpace: "pre-wrap" }}>{m.text}</div>
-        ))}
-        {loading && <div style={{ alignSelf: "flex-start", fontSize: 14, padding: "8px 12px", borderRadius: 16, border: `1px solid ${C.line}`, color: C.mute }}>FinHope is thinking\u2026</div>}
-        <div ref={endRef} />
-      </div>
-      <div style={{ position: "sticky", bottom: 80, display: "flex", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 8, background: C.paper }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="Ask about your finances\u2026" style={{ flex: 1, padding: "10px 14px", fontSize: 14, borderRadius: 999, border: `1px solid ${C.line}`, background: C.card }} />
-        <button onClick={() => send()} style={{ background: C.teal, width: 36, height: 36, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "none" }}><Emoji size={15}><span style={{ color: "#fff" }}>\u27A4</span></Emoji></button>
-      </div>
-    </div>
-  );
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<FinHopeApp />);
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./service-worker.js").catch(() => {});
+    });
+  }
 </script>
+
 </body>
 </html>
